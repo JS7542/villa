@@ -1,0 +1,644 @@
+# -------------------------------------------------
+#
+# Frontend
+#
+# -------------------------------------------------
+
+
+# -----------------------
+# ConfigMap 정의
+# -----------------------
+# nginx | index.html 정의
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: std20-html-configmap
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>안녕하세요</title>
+        <style>
+            body {
+                width: 35em;
+                margin: 0 auto;
+                font-family: Tahoma, Verdana, Arial, sans-serif;
+            }
+        </style>
+    </head>
+    <body>
+    <h1>반갑습니다</h1>
+    <a href="/api">FastAPI 페이지로 이동</a>
+    </body>
+    </html>
+
+# nginx | default.conf 정의
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: std20-conf-configmap
+data:
+  default.conf: |
+    charset utf-8;
+
+    server {
+        listen 80;
+        server_name _; # ALB를 통해 들어오므로 모든 호스트 허용
+
+        # 클라이언트 실제 IP 및 프로토콜 전달 설정
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto; # ALB가 보낸 프로토콜(https) 전달
+
+        # 1. 프론트엔드 정적 파일
+        location / {
+            root /usr/share/nginx/html;
+            index index.html;
+            try_files $uri $uri/ /index.html;
+        }
+    }
+
+
+# -----------------------
+# nginx Deployment 정의
+# -----------------------
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: std20-web-deployment
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: std20-web
+# -----------------------
+# pod와 리소스 정의
+# -----------------------
+  template:
+    metadata:
+      labels:
+        app: std20-web
+    spec:
+      containers:
+      - name: std20-web-container
+        image: nginx:1.31.3-alpine
+        ports:
+          - containerPort: 80
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+# -----------------------
+# 헬스 체크
+# -----------------------
+        livenessProbe:                # 컨테이너 살아있는지를 지속적으로 확인
+          httpGet:                 
+            path: /                   # 헬스 체크를 위해 요청을 보낼 경로
+            port: 80                  # 헬스 체크를 위해 요청을 보낼 포트
+          initialDelaySeconds: 30     # 컨테이너가 시작되고 나서 헬스 체크를 시작하기 전까지의 대기 시간
+          periodSeconds: 10           # 헬스 체크를 수행하는 주기 (초 단위)
+        readinessProbe:               # 컨테이너가 준비되었는지를 지속적으로 확인      
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5         
+# -----------------------
+# 볼륨 정의
+# -----------------------
+        volumeMounts:
+          - name: std20-html-volume
+            mountPath: /usr/share/nginx/html/index.html
+            subPath: index.html
+
+          - name: std20-conf-volume
+            mountPath: /etc/nginx/conf.d/default.conf
+            subPath: default.conf
+
+      volumes:
+        - name: std20-html-volume
+          configMap:
+            name: std20-html-configmap
+
+        - name: std20-conf-volume
+          configMap:
+            name: std20-conf-configmap
+
+
+# -----------------------
+# nginx HPA(Horizontal Pod Autoscaler)
+# -----------------------
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: std20-web-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: std20-web-deployment
+  minReplicas: 1          # Pod의 최소 갯수
+  maxReplicas: 3          # Pod의 최대 갯수
+  metrics:
+    - type: Resource      # Resource(Pod의 CPU or Memory사용률을 기준으로 스케일링),Pod(특정 Pod의 CPU or Memory사용률을 기준으로 스케일링),
+                          # Object(Ingress-ALB로 들어오는 요청 수), External(AWS SQS 등 외부 지표)
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+
+# -----------------------
+# nginx lb service 정의
+# -----------------------
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: std20-web-service
+spec:
+  type: ClusterIP   # 외부에서의 접속을 막기 위해.
+  selector:
+    app: std20-web
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+
+
+
+
+
+
+
+
+# -------------------------------------------------------
+#
+# Backend
+#
+# -------------------------------------------------------
+
+
+# -----------------------
+# ConfigMap 정의
+# -----------------------
+# mysql 기본 변수 정의
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: std20-mysql-config
+data:
+  DB_NAME: "testdb"
+  DB_USER: "std20"
+  DB_HOST: "std20-rds.c1aieog4upxq.ap-east-1.rds.amazonaws.com"
+  DB_PORT: "3306"
+
+
+# mysql 암호 정의
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: std20-mysql-secret-env
+type: Opaque
+data:
+  MYSQL_ROOT_PASSWORD: "bWVsdDc1NDI="
+  DB_PASSWORD: "bWVsdDc1NDI="
+
+
+# FastAPI | main.py 정의
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: std20-fastapi-code
+data:
+  main.py: |
+    from fastapi import FastAPI, Request, HTTPException
+    from fastapi.responses import HTMLResponse
+    from fastapi.templating import Jinja2Templates
+    from fastapi.staticfiles import StaticFiles
+    import os
+    import pymysql
+    app = FastAPI()
+  
+    templates = Jinja2Templates(directory="/app/templates")
+    DB_CONFIG = {
+        "host": os.environ["DB_HOST"],
+        "user": os.environ["DB_USER"],
+        "password": os.environ["DB_PASSWORD"],
+        "database": os.environ["DB_NAME"],
+        "port": int(os.environ.get("DB_PORT", "3306")),
+        "charset": "utf8mb4",
+        "connect_timeout": 5
+    }
+
+    def check_rds():
+
+      connection = None
+
+      try:
+
+          connection = pymysql.connect(**DB_CONFIG)
+
+          with connection.cursor() as cursor:
+              cursor.execute("SELECT 1")
+              cursor.fetchone()
+
+          return True, "RDS MySQL 연결 정상"
+
+      except Exception as e:
+
+          # 실제 오류는 Pod 로그에서 확인
+          print(f"RDS connection error: {e}")
+
+          return False, "RDS MySQL 연결 실패"
+
+      finally:
+
+          if connection:
+              connection.close()
+    # Health Check
+    @app.get("/health")
+    def health():
+        return {
+            "status": "ok"
+        }
+
+    # Jinja2 Page
+    @app.get("/api", response_class=HTMLResponse)
+    async def api_page(request: Request):
+
+        db_connected, db_message = check_rds()
+
+        return templates.TemplateResponse(
+            request=request,
+            name="index.html",
+            context={
+                "title": "STD20 FastAPI",
+                "message": "FastAPI Jinja2 페이지입니다.",
+                "db_connected": db_connected,
+                "db_message": db_message
+            }
+        )
+    @app.get("/api/db-check")
+    def db_check():
+
+        db_connected, db_message = check_rds()
+
+        return {
+            "status": "connected" if db_connected else "failed",
+            "message": db_message
+        }
+
+
+
+# FastAPI | index.html 정의
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: std20-fastapi-html
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="ko">
+    <head>
+        <meta charset="UTF-8">
+        <title>{{ title }}</title>
+
+        <style>
+            body {
+                width: 35em;
+                margin: 100px auto;
+                font-family: Arial, sans-serif;
+                text-align: center;
+            }
+
+            .box {
+                padding: 30px;
+                border: 1px solid #ddd;
+                border-radius: 10px;
+            }
+
+            .btn {
+                display: inline-block;
+                margin-top: 20px;
+                padding: 10px 20px;
+                background: #333;
+                color: white;
+                text-decoration: none;
+                border-radius: 5px;
+            }
+        </style>
+    </head>
+
+    <body>
+
+        <div class="box">
+
+            <h1>{{ title }}</h1>
+
+            <p>{{ message }}</p>
+
+            <p>
+                Nginx → FastAPI → Jinja2 연결 성공
+            </p>
+          <div class="db-status">
+
+              {% if db_connected %}
+
+                  <h2 style="color: green;">
+                      ✅ RDS 연결 정상
+                  </h2>
+
+                  <p>
+                      {{ db_message }}
+                  </p>
+
+              {% else %}
+
+                  <h2 style="color: red;">
+                      ❌ RDS 연결 실패
+                  </h2>
+
+                  <p>
+                      {{ db_message }}
+                  </p>
+
+              {% endif %}
+
+          </div>
+
+          <a class="btn" href="/">
+              Nginx 메인으로 돌아가기
+          </a>
+
+        </div>
+
+    </body>
+    </html>
+
+
+
+# -----------------------
+# FastAPI Deployment 정의
+# -----------------------
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: std20-fastapi-deployment
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: std20-fastapi
+  template:
+    metadata:
+      labels:
+        app: std20-fastapi
+    spec:
+      containers:
+      - name: std20-fastapi-container
+        image: python:3.12.2-slim
+
+        ports:
+          - containerPort: 8000
+
+# -----------------------
+# 컨테이너의 command 정의
+# -----------------------
+        command:
+          - /bin/sh
+          - -c
+
+        args:
+          - |
+            set -e
+
+            # FastAPI 및 필요한 Python 패키지 설치
+            python -m pip install --no-cache-dir \
+              fastapi \
+              'uvicorn[standard]' \
+              jinja2 \
+              pydantic \
+              pymysql \
+              sshtunnel \
+              cryptography \
+              boto3 \
+              python-dotenv
+
+
+            echo "===== FastAPI server start ====="
+
+            cd /app
+
+            exec uvicorn main:app \
+              --host 0.0.0.0 \
+              --port 8000
+
+# -----------------------
+# 리소스 정의
+# -----------------------
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "600m"
+# -----------------------
+# 헬스 체크
+# -----------------------
+        startupProbe:                # 컨테이너가 시작되었는지를 지속적으로 확인
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 10
+
+
+        livenessProbe:                # 컨테이너 살아있는지를 지속적으로 확인
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 3
+
+        readinessProbe:               # 컨테이너가 준비되었는지를 지속적으로 확인
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 3
+
+
+# -----------------------
+# 환경 변수 정의
+# -----------------------
+        env:
+          - name: DB_HOST
+            valueFrom:
+              configMapKeyRef:
+                name: std20-mysql-config
+                key: DB_HOST
+          - name: DB_PORT
+            valueFrom:
+              configMapKeyRef:
+                name: std20-mysql-config
+                key: DB_PORT
+          - name: DB_NAME
+            valueFrom:
+              configMapKeyRef:
+                name: std20-mysql-config
+                key: DB_NAME
+          - name: DB_USER
+            valueFrom:
+              configMapKeyRef:
+                name: std20-mysql-config
+                key: DB_USER
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: std20-mysql-secret-env
+                key: DB_PASSWORD
+
+# -----------------------
+# 볼륨 정의
+# -----------------------
+        volumeMounts:
+          - name: std20-fastapi-code-volume
+            mountPath: /app/main.py
+            subPath: main.py
+
+          - name: std20-fastapi-html-volume
+            mountPath: /app/templates/index.html
+            subPath: index.html 
+
+      volumes:
+        - name: std20-fastapi-code-volume
+          configMap:
+            name: std20-fastapi-code
+
+        - name: std20-fastapi-html-volume
+          configMap:
+            name: std20-fastapi-html
+
+# -----------------------
+# FastAPI HPA(Horizontal Pod Autoscaler)
+# -----------------------
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: std20-fastapi-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: std20-fastapi-deployment
+  minReplicas: 2          # Pod의 최소 갯수
+  maxReplicas: 6          # Pod의 최대 갯수
+  metrics:
+    - type: Resource      # Resource(Pod의 CPU or Memory사용률을 기준으로 스케일링),Pod(특정 Pod의 CPU or Memory사용률을 기준으로 스케일링),
+                          # Object(Ingress-ALB로 들어오는 요청 수), External(AWS SQS 등 외부 지표)
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+# -----------------------
+# FastAPI Service 정의
+# -----------------------
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: std20-fastapi-service
+spec:
+  type: ClusterIP
+  selector:
+    app: std20-fastapi
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+
+
+    
+# -----------------------
+# Ingress 정의
+# -----------------------
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: std20-alb-ingress
+
+  annotations:
+
+    # 외부 ALB
+    alb.ingress.kubernetes.io/scheme: internet-facing
+
+    # ALB -> Pod IP 직접 전달
+    alb.ingress.kubernetes.io/target-type: ip
+
+    # HTTP / HTTPS Listener
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+
+    # ALB Security Group
+    alb.ingress.kubernetes.io/security-groups: sg-040f4c1a77895c0d0,sg-096f1a39a47ff83ad
+
+    # ACM 인증서
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-east-1:925047940866:certificate/84c3701c-2442-40cd-9a64-0c8de938982c
+
+    # HTTP → HTTPS
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+
+spec:
+  ingressClassName: alb
+
+  rules:
+    - http:
+        paths:
+
+          # FastAPI
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: std20-fastapi-service
+                port:
+                  number: 8000
+
+          # Nginx
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: std20-web-service
+                port:
+                  number: 80
