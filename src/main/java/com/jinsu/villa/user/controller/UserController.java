@@ -13,10 +13,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/users")
 public class UserController {
 
-    private final UserService userService;
+  private final UserService userService;
 
-    @GetMapping("/me")
-    public MyInfoResponse getMyInfo(Authentication authentication) {
-        return userService.getMyInfo(authentication);
-    }
+  @GetMapping("/me")
+  public MyInfoResponse getMyInfo(Authentication authentication) {
+    return userService.getMyInfo(authentication);
+  }
 }

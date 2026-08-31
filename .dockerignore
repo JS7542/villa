@@ -1,0 +1,7 @@
+.git
+.gradle
+build
+.env
+.env.*
+src/main/resources/application-secret.properties
+*.log
