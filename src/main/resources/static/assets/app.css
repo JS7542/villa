@@ -613,3 +613,6 @@ button.danger {
     font-size: 20px;
   }
 }
+.dialog-copy {
+  white-space: pre-line;
+}

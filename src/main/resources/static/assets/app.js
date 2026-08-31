@@ -80,7 +80,59 @@ function empty(t, text = "아직 내역이 없습니다.") {
   t.replaceChildren(el("p", text, "empty-state"));
 }
 const json = (method, body) => ({ method, body: JSON.stringify(body) });
-const reason = (label) => prompt(label)?.trim() || null;
+function ask(question, needsReason = false) {
+  return new Promise((resolve) => {
+    const dialog = el("dialog");
+    const form = el("form");
+    const title = el("h2", needsReason ? "처리 사유" : "일정 확인");
+    title.id = "action-dialog-title";
+    dialog.setAttribute("aria-labelledby", title.id);
+    const copy = el("p", question, "dialog-copy");
+    form.append(title, copy);
+    let input;
+    if (needsReason) {
+      const label = el("label", "사유");
+      input = el("textarea");
+      input.required = true;
+      input.maxLength = 500;
+      label.append(input);
+      form.append(label);
+    }
+    const actions = el("div", null, "actions");
+    const cancel = el("button", "돌아가기");
+    cancel.type = "button";
+    cancel.onclick = () => dialog.close();
+    const submit = el("button", "확인", "primary");
+    submit.type = "submit";
+    actions.append(cancel, submit);
+    form.append(actions);
+    form.onsubmit = (event) => {
+      event.preventDefault();
+      if (needsReason && !input.value.trim()) {
+        input.setCustomValidity("처리 사유를 입력해 주세요.");
+        input.reportValidity();
+        return;
+      }
+      dialog.close("confirmed");
+    };
+    if (input) input.oninput = () => input.setCustomValidity("");
+    dialog.append(form);
+    dialog.onclose = () => {
+      const result =
+        dialog.returnValue === "confirmed"
+          ? needsReason
+            ? input.value.trim()
+            : true
+          : null;
+      dialog.remove();
+      resolve(result);
+    };
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+}
+const reason = (label) => ask(label, true);
+const confirmAction = (label) => ask(label);
 function bindForm(selector, handler, target = "#global-message") {
   const f = $(selector);
   if (!f) return;
@@ -227,7 +279,7 @@ async function bookings(admin = false) {
           button(
             "강제 취소",
             async () => {
-              const why = reason("예약자에게 안내할 취소 사유");
+              const why = await reason("예약자에게 안내할 취소 사유");
               if (!why) return;
               await api(
                 "/admin/reservations/" + r.id + "/cancel",
@@ -244,9 +296,9 @@ async function bookings(admin = false) {
             "예약 취소",
             async () => {
               if (
-                !confirm(
+                !(await confirmAction(
                   r.startDate + " ~ " + r.endDate + " 예약을 취소할까요?",
-                )
+                ))
               )
                 return;
               await api("/reservations/" + r.id, { method: "DELETE" });
@@ -285,7 +337,7 @@ function roleButton(u) {
   return button(
     u.role === "ADMIN" ? "관리자 권한 해제" : "관리자로 지정",
     async () => {
-      const why = reason(
+      const why = await reason(
         u.name + "님 권한 변경 사유 (변경 후 다시 로그인해야 합니다)",
       );
       if (!why) return;
@@ -333,7 +385,7 @@ async function manageLists() {
     ])
       row.append(
         button(label, async () => {
-          const why = reason(u.name + "님 " + label + " 사유");
+          const why = await reason(u.name + "님 " + label + " 사유");
           if (!why) return;
           await api(
             "/admin/users/" + u.id + "/status",
@@ -386,7 +438,7 @@ async function manageLists() {
     if (b.status === "ACTIVE")
       row.append(
         button("기간 해제", async () => {
-          const why = reason("해제 사유");
+          const why = await reason("해제 사유");
           if (!why) return;
           await api(
             "/admin/calendar-blocks/" + b.id + "/release",
@@ -414,7 +466,8 @@ async function manageLists() {
     if (n.status === "PENDING")
       row.append(
         button("직접 연락 완료", async () => {
-          if (!confirm("예약자에게 실제 연락을 마쳤나요?")) return;
+          if (!(await confirmAction("예약자에게 실제 연락을 마쳤나요?")))
+            return;
           await api("/admin/communications/" + n.id + "/contact", {
             method: "PATCH",
           });
@@ -435,7 +488,7 @@ async function manageLists() {
       const next = u.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE";
       row.append(
         button(next === "ACTIVE" ? "정지 해제" : "계정 정지", async () => {
-          const why = reason("계정 상태 변경 사유");
+          const why = await reason("계정 상태 변경 사유");
           if (!why) return;
           await api(
             "/admin/users/" + u.id + "/status",
@@ -446,7 +499,7 @@ async function manageLists() {
       );
       row.append(
         button("탈퇴 처리", async () => {
-          const why = reason(
+          const why = await reason(
             "본인 요청을 확인한 뒤 탈퇴 사유를 입력하세요. 미래 예약은 따로 정리해야 합니다.",
           );
           if (!why) return;
@@ -462,7 +515,7 @@ async function manageLists() {
     if (u.status === "ACTIVE")
       row.append(
         button("비밀번호 복구 코드", async () => {
-          const why = reason("가족 연락 경로로 본인을 확인한 방법");
+          const why = await reason("가족 연락 경로로 본인을 확인한 방법");
           if (!why) return;
           const r = await api(
             "/admin/users/" + u.id + "/password-reset",
@@ -562,14 +615,14 @@ async function init() {
       async (data) => {
         data.guestCount = Number(data.guestCount);
         if (
-          !confirm(
+          !(await confirmAction(
             data.startDate +
               " ~ " +
               data.endDate +
               "\n시작일·종료일 모두 포함, " +
               data.guestCount +
               "명으로 예약할까요?",
-          )
+          ))
         )
           return;
         try {
