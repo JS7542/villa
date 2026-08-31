@@ -41,6 +41,12 @@ public class PageController {
     return "home";
   }
 
+  @GetMapping("/board")
+  public String board(@AuthenticationPrincipal VillaPrincipal p, Model m) {
+    m.addAttribute("user", p);
+    return "board";
+  }
+
   @GetMapping("/health")
   @ResponseBody
   public Map<String, String> health() {

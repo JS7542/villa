@@ -1,10 +1,13 @@
 "use strict";
+import { DateRangeSelection, dayCount, orderedRange, plusDays, rangeError } from "./date-range.js";
 const $ = (s, root = document) => root.querySelector(s),
   mode = document.body.dataset.mode;
 let policy,
   viewMonth,
   calendarRequest = 0,
   bookingKey = crypto.randomUUID();
+const selection = new DateRangeSelection(), calendarMonths = new Map();
+let preview = null, gesture = null, ignoreClick = false, selectionRevision = 0;
 const labels = {
   CONFIRMED: "예약 확정",
   CANCELLED: "취소",
@@ -36,7 +39,7 @@ async function api(path, options = {}) {
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
-    throw Error("서버 응답을 확인할 수 없습니다. 내 예약을 확인해 주세요.");
+    throw Error("서버 응답을 확인하지 못했습니다. 새로고침 후 다시 확인해 주세요.");
   }
   if (!response.ok) {
     if (response.status === 401 && !["login", "signup", "reset"].includes(mode))
@@ -84,7 +87,7 @@ function ask(question, needsReason = false) {
   return new Promise((resolve) => {
     const dialog = el("dialog");
     const form = el("form");
-    const title = el("h2", needsReason ? "처리 사유" : "일정 확인");
+    const title = el("h2", needsReason ? "처리 사유" : "내용 확인");
     title.id = "action-dialog-title";
     dialog.setAttribute("aria-labelledby", title.id);
     const copy = el("p", question, "dialog-copy");
@@ -155,28 +158,169 @@ function iso(y, m, d) {
     y + "-" + String(m + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0")
   );
 }
-function plusDays(date, n) {
-  const d = new Date(date + "T12:00:00Z");
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
+function monthKeys(range) {
+  const keys = new Set();
+  if (!rangeError(range, policy))
+    for (let date = range.start; date <= range.end; date = plusDays(date, 1))
+      keys.add(date.slice(0, 7));
+  return [...keys];
 }
-function duration() {
-  const f = $("#booking-form"),
-    a = f.elements.startDate.value,
-    b = f.elements.endDate.value,
-    count = (Date.parse(b) - Date.parse(a)) / 86400000 + 1;
-  $("#duration").textContent =
-    Number.isFinite(count) && count > 0
-      ? a + " ~ " + b + " · 총 " + count + "일 사용"
-      : "날짜를 선택해 주세요.";
+function selectionError(range) {
+  return rangeError(range, policy, [...calendarMonths.values()].flat());
+}
+async function loadSelectionMonths(range, refresh = false) {
+  await Promise.all(monthKeys(range).map(async (key) => {
+    if (refresh || !calendarMonths.has(key)) {
+      const [year, month] = key.split("-").map(Number);
+      calendarMonths.set(key, await api("/reservations/calendar?year=" + year + "&month=" + month));
+    }
+  }));
+}
+function paintSelection() {
+  const range = preview || selection;
+  const error = selectionError(range);
+  for (const b of $("#calendar").querySelectorAll("[data-date]")) {
+    const date = b.dataset.date;
+    const selected = !!range.start && date >= range.start && date <= range.end;
+    b.classList.toggle("selected", selected);
+    b.classList.toggle("selection-invalid", selected && !!error);
+    b.classList.toggle("range-edge", selected && (date === range.start || date === range.end));
+    b.setAttribute("aria-pressed", String(selected));
+    const marker = $(".selection-label", b);
+    marker.textContent = !selected ? "" : date === range.start && date === range.end
+      ? (selection.anchor && !preview ? "시작" : "당일")
+      : date === range.start ? "시작" : date === range.end ? "종료" : "";
+    b.setAttribute("aria-label", b.dataset.label + (selected ? " · 선택됨 " + marker.textContent : ""));
+  }
+  const count = dayCount(range.start, range.end);
+  const summary = Number.isFinite(count) && count > 0
+    ? range.start + " ~ " + range.end + " · " + count + "일"
+    : "이용할 날짜를 선택해 주세요.";
+  $("#selection-summary").textContent = summary + (preview ? " (드래그 중)" : selection.anchor ? " · 종료일을 골라 주세요." : "");
+  $("#clear-selection").disabled = !selection.start && !selection.end;
+  $("#duration").textContent = selection.start && selection.end && dayCount(selection.start, selection.end) > 0
+    ? selection.start + " ~ " + selection.end + " · " + dayCount(selection.start, selection.end) + "일 이용"
+    : "날짜를 선택해 주세요.";
+}
+function syncSelection() {
+  const f = $("#booking-form");
+  f.elements.startDate.value = selection.start;
+  f.elements.endDate.value = selection.end;
+  const error = selectionError(selection);
+  f.elements.endDate.setCustomValidity(error);
+  message("#selection-message", selection.start && selection.end ? error : "");
+  paintSelection();
+}
+function chooseDate(date) {
+  const error = selectionError(selection.proposed(date));
+  if (error) {
+    message("#selection-message", error + " 다른 종료일을 골라 주세요.");
+    return;
+  }
+  selectionRevision++;
+  selection.click(date);
+  preview = null;
+  syncSelection();
+}
+function setupCalendarSelection() {
+  const c = $("#calendar"), f = $("#booking-form");
+  const dayAt = (event) => document.elementFromPoint(event.clientX, event.clientY)?.closest("#calendar [data-date]");
+  c.addEventListener("click", (event) => {
+    const b = event.target.closest("[data-date]");
+    if (!ignoreClick && b && !b.disabled) chooseDate(b.dataset.date);
+  });
+  c.addEventListener("pointerdown", (event) => {
+    // Touch keeps native scrolling; tapping twice works on phones and tablets.
+    if (event.pointerType === "touch" || event.button !== 0 || !event.isPrimary) return;
+    const b = event.target.closest("[data-date]");
+    if (!b || b.disabled) return;
+    gesture = { id: event.pointerId, start: b.dataset.date, dragged: false };
+    c.setPointerCapture(event.pointerId);
+    b.focus({ preventScroll: true });
+  });
+  c.addEventListener("pointermove", (event) => {
+    if (!gesture || gesture.id !== event.pointerId) return;
+    const b = dayAt(event);
+    if (!b) return;
+    if (b.dataset.date !== gesture.start) gesture.dragged = true;
+    if (gesture.dragged) {
+      preview = orderedRange(gesture.start, b.dataset.date);
+      message("#selection-message", selectionError(preview));
+      paintSelection();
+    }
+  });
+  function cancelGesture() {
+    gesture = null;
+    preview = null;
+    syncSelection();
+  }
+  c.addEventListener("pointerup", (event) => {
+    if (!gesture || gesture.id !== event.pointerId) return;
+    const current = gesture, b = dayAt(event);
+    gesture = null;
+    preview = null;
+    ignoreClick = true;
+    setTimeout(() => { ignoreClick = false; }, 0);
+    if (c.hasPointerCapture(event.pointerId)) c.releasePointerCapture(event.pointerId);
+    if (!b) return syncSelection();
+    if (!current.dragged) return chooseDate(current.start);
+    const range = orderedRange(current.start, b.dataset.date), error = selectionError(range);
+    if (error) {
+      syncSelection();
+      message("#selection-message", error + " 날짜를 다시 골라 주세요.");
+    } else {
+      selectionRevision++;
+      selection.set(range.start, range.end);
+      syncSelection();
+    }
+  });
+  c.addEventListener("pointercancel", cancelGesture);
+  c.addEventListener("lostpointercapture", () => { if (gesture) cancelGesture(); });
+  $("#clear-selection").onclick = () => {
+    selectionRevision++;
+    selection.clear();
+    preview = null;
+    syncSelection();
+  };
+  for (const name of ["startDate", "endDate"]) {
+    f.elements[name].addEventListener("change", async () => {
+      const revision = ++selectionRevision;
+      selection.set(f.elements.startDate.value, f.elements.endDate.value);
+      preview = null;
+      syncSelection();
+      if (rangeError(selection, policy)) return;
+      f.elements.endDate.setCustomValidity("선택한 날짜를 확인 중입니다.");
+      try {
+        await loadSelectionMonths({ start: selection.start, end: selection.end });
+        if (revision === selectionRevision) syncSelection();
+      } catch (e) {
+        if (revision !== selectionRevision) return;
+        f.elements.endDate.setCustomValidity("날짜를 확인하지 못했습니다. 잠시 후 다시 선택해 주세요.");
+        message("#selection-message", e.message);
+      }
+    });
+  }
 }
 async function renderCalendar() {
   const request = ++calendarRequest,
-    [y, m] = viewMonth,
+    [y, m] = viewMonth;
+  $("#calendar").setAttribute("aria-busy", "true");
+  $("#calendar").replaceChildren(el("p", "일정을 불러오는 중입니다.", "calendar-loading"));
+  let items;
+  try {
     items = await api("/reservations/calendar?year=" + y + "&month=" + (m + 1));
+  } catch (e) {
+    if (request === calendarRequest) {
+      $("#calendar").setAttribute("aria-busy", "false");
+      $("#calendar").replaceChildren(el("p", "일정을 불러오지 못했습니다. 새로고침해 주세요.", "calendar-loading"));
+    }
+    throw e;
+  }
   if (request !== calendarRequest) return;
+  calendarMonths.set(iso(y, m, 1).slice(0, 7), items);
   $("#month-title").textContent = y + "년 " + (m + 1) + "월";
   const c = $("#calendar");
+  c.setAttribute("aria-busy", "false");
   c.replaceChildren();
   const start = new Date(y, m, 1).getDay(),
     days = new Date(y, m + 1, 0).getDate();
@@ -186,6 +330,7 @@ async function renderCalendar() {
       entry = items.find((x) => x.startDate <= date && x.endDate >= date),
       b = el("button", null, "day");
     b.type = "button";
+    b.dataset.date = date;
     b.append(el("span", String(d), "date-number"));
     if (date === policy.today) b.classList.add("today");
     if (entry) {
@@ -210,21 +355,17 @@ async function renderCalendar() {
             ? "예약 불가"
             : "예약 가능"),
     );
-    b.onclick = () => {
-      const f = $("#booking-form");
-      f.elements.startDate.value = date;
-      f.elements.endDate.value = date;
-      duration();
-      f.elements.endDate.focus();
-    };
+    b.dataset.label = b.getAttribute("aria-label");
+    b.append(el("span", "", "selection-label"));
     c.append(b);
   }
+  syncSelection();
 }
 async function bookings(admin = false) {
   const target = $(admin ? "#admin-bookings" : "#my-bookings"),
     rows = await api(admin ? "/admin/reservations" : "/reservations/me");
   target.replaceChildren();
-  if (!rows.length) return empty(target, "새로운 쉼을 계획해 보세요.");
+  if (!rows.length) return empty(target, "예약 내역이 없습니다.");
   for (const r of rows) {
     const card = el("article", null, "booking-card");
     card.append(
@@ -331,7 +472,10 @@ async function notices() {
   }
 }
 async function refreshHome() {
+  calendarMonths.clear();
   await Promise.all([renderCalendar(), bookings(), notices()]);
+  await loadSelectionMonths(selection);
+  syncSelection();
 }
 function roleButton(u) {
   return button(
@@ -567,6 +711,11 @@ async function init() {
       message("#global-message", e.message);
     }
   };
+  if (mode === "board") {
+    const { initBoard } = await import("./board.js");
+    await initBoard({ api, message, el, button, bindForm, confirmAction });
+    return;
+  }
   bindForm("#password-form", async (data) => {
     await api("/users/me/password", json("POST", data));
     location.href = "/login";
@@ -579,24 +728,24 @@ async function init() {
     for (const name of ["startDate", "endDate"]) {
       f.elements[name].min = plusDays(policy.today, 1);
       f.elements[name].max = plusDays(policy.today, policy.advanceDays);
-      f.elements[name].addEventListener("change", duration);
     }
     f.elements.guestCount.max = policy.maxGuests || 1;
     $("#policy-summary").textContent =
-      "앞으로 " +
+      "오늘부터 " +
       policy.advanceDays +
-      "일 · 최대 " +
+      "일 이내, 한 번에 최대 " +
       policy.maxDays +
-      "일 연속 · 진행 중·미래 예약 " +
+      "일까지 예약할 수 있습니다. 이용 중이거나 예정된 예약은 " +
       policy.maxActive +
-      "건까지.";
+      "건까지 가능합니다.";
     if (policy.maxGuests <= 0) {
       $('button[type="submit"]', f).disabled = true;
       message(
         "#booking-message",
-        "실제 정원이 아직 설정되지 않았습니다. 관리자에게 문의해 주세요.",
+        "예약 준비 중입니다. 관리자에게 문의해 주세요.",
       );
     }
+    setupCalendarSelection();
     function move(offset) {
       const d = new Date(viewMonth[0], viewMonth[1] + offset, 1);
       viewMonth = [d.getFullYear(), d.getMonth()];
@@ -613,6 +762,10 @@ async function init() {
     bindForm(
       "#booking-form",
       async (data) => {
+        const range = { start: data.startDate, end: data.endDate };
+        await loadSelectionMonths(range);
+        const error = selectionError(range);
+        if (error) throw Error(error);
         data.guestCount = Number(data.guestCount);
         if (
           !(await confirmAction(
@@ -631,9 +784,13 @@ async function init() {
             headers: { "Idempotency-Key": bookingKey },
           });
           bookingKey = crypto.randomUUID();
+          selectionRevision++;
+          selection.clear();
+          preview = null;
+          syncSelection();
           message(
             "#booking-message",
-            "예약 #" + r.id + "을 확정했습니다.",
+            "예약이 완료됐습니다. (예약번호 " + r.id + ")",
             true,
           );
           await refreshHome();

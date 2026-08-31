@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <meta name="_csrf" th:content="${_csrf.token}" />
+    <meta name="_csrf_header" th:content="${_csrf.headerName}" />
+    <title>가족 별장 · 자유게시판</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+    <script type="module" src="/assets/app.js"></script>
+  </head>
+  <body data-mode="board">
+    <header class="topbar">
+      <a class="brand" href="/">VILLA <span>우리 가족의 별장</span></a>
+      <nav aria-label="주 메뉴">
+        <a href="/">예약 달력</a>
+        <a href="/board" aria-current="page">자유게시판</a>
+        <a href="/manage" th:if="${user.role().name() == 'ADMIN'}">관리</a>
+        <button id="logout" class="text-button">로그아웃</button>
+      </nav>
+    </header>
+    <main class="dashboard board-page">
+      <section class="page-heading">
+        <div>
+          <h1>자유게시판</h1>
+          <p>별장 이용 후기나 가족에게 전할 이야기를 남겨 주세요.</p>
+        </div>
+        <button id="new-post" class="primary">글쓰기</button>
+      </section>
+      <p id="global-message" class="message" role="status" aria-live="polite"></p>
+      <section class="panel" aria-label="게시글 목록">
+        <div id="post-list"><p>글을 불러오는 중입니다.</p></div>
+        <div class="board-pagination">
+          <button id="board-prev" disabled>이전</button>
+          <span id="board-page-number" aria-live="polite">1페이지</span>
+          <button id="board-next" disabled>다음</button>
+        </div>
+      </section>
+      <footer>게시글은 로그인한 가족만 볼 수 있습니다.</footer>
+    </main>
+    <dialog id="post-dialog" class="post-dialog" aria-labelledby="post-title">
+      <article>
+        <h2 id="post-title"></h2>
+        <p id="post-meta" class="quiet"></p>
+        <div id="post-body" class="post-body"></div>
+        <p id="post-message" class="message" role="status"></p>
+        <div id="post-actions" class="actions"></div>
+      </article>
+    </dialog>
+    <dialog id="editor-dialog" class="post-dialog" aria-labelledby="editor-title">
+      <form id="post-form">
+        <h2 id="editor-title">글쓰기</h2>
+        <input type="hidden" name="id" />
+        <input type="hidden" name="expectedVersion" />
+        <label>제목<input name="title" required maxlength="100" /></label>
+        <label>내용<textarea name="body" required maxlength="5000" rows="10"></textarea></label>
+        <p class="quiet">제목은 100자, 내용은 5,000자까지 쓸 수 있습니다.</p>
+        <p id="editor-message" class="message" role="status" aria-live="polite"></p>
+        <div class="actions">
+          <button id="close-editor" type="button">취소</button>
+          <button type="submit" class="primary">등록</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

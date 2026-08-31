@@ -42,7 +42,8 @@ public class SecurityConfig {
     RequestMatcher html =
         r ->
             "GET".equals(r.getMethod())
-                && ("/".equals(r.getServletPath()) || "/manage".equals(r.getServletPath()));
+                && ("/".equals(r.getServletPath()) || "/manage".equals(r.getServletPath())
+                    || "/board".equals(r.getServletPath()));
     http.securityContext(s -> s.securityContextRepository(contexts))
         .csrf(c -> c.csrfTokenRepository(tokens))
         .authorizeHttpRequests(

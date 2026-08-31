@@ -52,3 +52,4 @@ src/main/resources/application-secret.properties
 *.sql.gz
 .pgpass
 *.key
+/node_modules/

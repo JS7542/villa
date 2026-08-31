@@ -12,6 +12,8 @@ import com.jinsu.villa.auth.dto.request.SignupRequest;
 import com.jinsu.villa.auth.principal.VillaPrincipal;
 import com.jinsu.villa.auth.service.AuthService;
 import com.jinsu.villa.auth.service.PasswordService;
+import com.jinsu.villa.board.BoardDtos;
+import com.jinsu.villa.board.BoardService;
 import com.jinsu.villa.common.exception.DomainException;
 import com.jinsu.villa.invite.service.InviteCodeService;
 import com.jinsu.villa.reservation.dto.BookingDtos.*;
@@ -82,6 +84,7 @@ class ServiceIntegrationTest {
   }
 
   @Autowired ReservationService bookings;
+  @Autowired BoardService board;
   @Autowired InviteCodeService invites;
   @Autowired AdminService admins;
   @Autowired AuthService auth;
@@ -97,6 +100,7 @@ class ServiceIntegrationTest {
   void reset() {
     for (String table :
         List.of(
+            "board_posts",
             "communication_tasks",
             "reservation_history",
             "calendar_occupancy",
@@ -529,7 +533,7 @@ class ServiceIntegrationTest {
     var session = login("family_one");
     mvc.perform(get("/").session(session))
         .andExpect(status().isOk())
-        .andExpect(content().string(org.hamcrest.Matchers.containsString("다음 쉼")));
+        .andExpect(content().string(org.hamcrest.Matchers.containsString("별장 예약")));
     mvc.perform(
             post("/reservations")
                 .session(session)
@@ -563,6 +567,98 @@ class ServiceIntegrationTest {
   }
 
   @Test
+  void boardOwnershipVersionsAndAdministratorModeration() {
+    var post = board.create(owner, new BoardDtos.Create("  준비물  ", " 수건을 챙겨 주세요.\n두 번째 줄 "));
+    assertThat(post.title()).isEqualTo("준비물");
+    assertThat(post.body()).contains("\n");
+    assertThat(board.detail(other, post.id()).editable()).isFalse();
+    assertThat(board.detail(admin, post.id()).editable()).isFalse();
+    assertThatThrownBy(() -> board.update(other, post.id(), new BoardDtos.Update("수정", "내용", 0L)))
+        .isInstanceOf(DomainException.class).hasMessageContaining("권한");
+    assertThatThrownBy(() -> board.delete(other, post.id(), 0))
+        .isInstanceOf(DomainException.class).hasMessageContaining("권한");
+    var edited = board.update(owner, post.id(), new BoardDtos.Update("준비물 추가", "수건과 세면도구", 0L));
+    assertThat(edited.version()).isEqualTo(1);
+    assertThatThrownBy(() -> board.update(owner, post.id(), new BoardDtos.Update("옛 내용", "덮어쓰기", 0L)))
+        .isInstanceOf(DomainException.class).hasMessageContaining("변경");
+    assertThatThrownBy(() -> board.delete(owner, post.id(), 0))
+        .isInstanceOf(DomainException.class).hasMessageContaining("변경");
+    board.delete(admin, post.id(), edited.version());
+    assertThatThrownBy(() -> board.detail(owner, post.id())).isInstanceOf(DomainException.class);
+    assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM admin_audit WHERE action='BOARD_DELETE'", Integer.class))
+        .isEqualTo(1);
+  }
+
+  @Test
+  void boardPaginationIsBoundedAndDoesNotLeakBodies() {
+    for (int i = 0; i < 23; i++) board.create(owner, new BoardDtos.Create("글 " + i, "본문 " + i));
+    var first = board.list(other, null);
+    assertThat(first.items()).hasSize(20);
+    assertThat(first.hasNext()).isTrue();
+    var next = board.list(other, first.items().getLast().id());
+    assertThat(next.items()).hasSize(3);
+    assertThat(next.hasNext()).isFalse();
+    assertThat(next.items()).extracting(BoardDtos.Summary::id)
+        .doesNotContainAnyElementsOf(first.items().stream().map(BoardDtos.Summary::id).toList());
+    assertThat(JSON.writeValueAsString(first)).doesNotContain("body", "본문");
+  }
+
+  @Test
+  void boardRequiresLoginCsrfAndActiveMembership() throws Exception {
+    mvc.perform(get("/board").servletPath("/board")).andExpect(status().is3xxRedirection())
+        .andExpect(redirectedUrl("/login"));
+    mvc.perform(get("/board/posts")).andExpect(status().isUnauthorized());
+    var session = login("family_one");
+    mvc.perform(get("/board").session(session)).andExpect(status().isOk())
+        .andExpect(content().string(org.hamcrest.Matchers.containsString("자유게시판")));
+    mvc.perform(post("/board/posts").session(session).contentType("application/json")
+        .content("{\"title\":\"제목\",\"body\":\"내용\"}"))
+        .andExpect(status().isForbidden());
+    var post = board.create(owner, new BoardDtos.Create("제목", "내용"));
+    admins.changeUserStatus(admin, owner.id(), new UserApprovalRequest(UserStatus.SUSPENDED, "요청 확인"));
+    mvc.perform(get("/board/posts").session(session)).andExpect(status().isUnauthorized());
+    assertThatThrownBy(() -> board.detail(owner, post.id())).isInstanceOf(DomainException.class);
+    assertThatThrownBy(() -> board.create(owner, new BoardDtos.Create("제목", "내용")))
+        .isInstanceOf(DomainException.class);
+  }
+
+  @Test
+  void boardApiValidatesInputAndKeepsTextAsData() throws Exception {
+    var session = login("family_one");
+    for (var invalid : List.of(new BoardDtos.Create(" ", "내용"),
+        new BoardDtos.Create("제목", " "), new BoardDtos.Create("가".repeat(101), "내용"),
+        new BoardDtos.Create("제목", "가".repeat(5001)))) {
+      mvc.perform(post("/board/posts").session(session).with(csrf()).contentType("application/json")
+          .content(JSON.writeValueAsString(invalid))).andExpect(status().isBadRequest());
+    }
+    String unsafe = "<img src=x onerror=alert(1)>";
+    var response = mvc.perform(post("/board/posts").session(session).with(csrf())
+        .contentType("application/json").content(JSON.writeValueAsString(new BoardDtos.Create("제목", unsafe))))
+        .andExpect(status().isCreated()).andExpect(jsonPath("$.body").value(unsafe)).andReturn();
+    long id = JSON.readTree(response.getResponse().getContentAsString()).get("id").asLong();
+    var otherSession = login("family_two");
+    mvc.perform(patch("/board/posts/" + id).session(otherSession).with(csrf())
+        .contentType("application/json").content("{\"title\":\"침범\",\"body\":\"내용\",\"expectedVersion\":0}"))
+        .andExpect(status().isForbidden());
+    mvc.perform(delete("/board/posts/" + id).param("expectedVersion", "0").session(session).with(csrf()))
+        .andExpect(status().isNoContent());
+    mvc.perform(get("/board/posts/" + id).session(session)).andExpect(status().isNotFound());
+  }
+
+  @Test
+  void concurrentBoardEditsDoNotOverwriteEachOther() throws Exception {
+    var post = board.create(owner, new BoardDtos.Create("원본", "원본 내용"));
+    var results = race(2, i -> {
+      try {
+        board.update(owner, post.id(), new BoardDtos.Update("수정 " + i, "내용 " + i, 0L));
+        return true;
+      } catch (DomainException e) { return false; }
+    });
+    assertThat(results).containsExactlyInAnyOrder(true, false);
+    assertThat(board.detail(owner, post.id()).version()).isEqualTo(1);
+  }
+
+  @Test
   void postgresRuntimeRoleCannotChangeSchemaOrMigrationHistory() {
     Assumptions.assumeTrue("villa_app".equals(System.getenv("TEST_DB_USERNAME")));
     assertThat(jdbc.queryForObject("SELECT current_schema()", String.class)).isEqualTo("villa");
@@ -576,6 +672,8 @@ class ServiceIntegrationTest {
           "SELECT has_schema_privilege(?, 'villa', 'USAGE')", Boolean.class, role)).isFalse();
       assertThat(jdbc.queryForObject(
           "SELECT has_table_privilege(?, 'villa.users', 'SELECT')", Boolean.class, role)).isFalse();
+      assertThat(jdbc.queryForObject(
+          "SELECT has_table_privilege(?, 'villa.board_posts', 'SELECT')", Boolean.class, role)).isFalse();
     }
   }
 }

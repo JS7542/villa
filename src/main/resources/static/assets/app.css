@@ -238,10 +238,13 @@ textarea {
   border-radius: 50%;
   background: #ecdcc0;
 }
-.legend span:first-child:before {
+.legend .legend-selected:before {
+  background: #2565a0;
+}
+.legend .legend-mine:before {
   background: #5a8364;
 }
-.legend span:last-child:before {
+.legend .legend-block:before {
   background: #a6afb0;
 }
 .weekdays,
@@ -271,6 +274,9 @@ textarea {
 .day .date-number {
   font-size: 14px;
   margin-left: 4px;
+}
+.day:disabled {
+  opacity: 1;
 }
 .day .day-label {
   font-size: 10px;
@@ -305,6 +311,60 @@ textarea {
   background: transparent;
   border: 0;
   pointer-events: none;
+}
+.calendar {
+  user-select: none;
+  touch-action: pan-y;
+}
+.calendar-loading {
+  grid-column: 1 / -1;
+  min-height: 220px;
+  padding: 28px 0;
+}
+.day.selected {
+  background: #e5f0fc;
+  border-color: #5790c1;
+  color: #194f7f;
+}
+.day.selected.range-edge {
+  background: #2565a0;
+  border-color: #2565a0;
+  color: white;
+}
+.day.selection-invalid,
+.day.selection-invalid.range-edge {
+  background: #fff0ed;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.selection-label {
+  font-size: 11px;
+  line-height: 1.4;
+  margin-left: 4px;
+  font-weight: 650;
+}
+.selection-label:empty {
+  display: none;
+}
+.selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  background: #f0f6fc;
+  border-radius: 9px;
+  padding: 10px 12px;
+  margin-top: 18px;
+  font-size: 13px;
+}
+.selection-bar p {
+  color: #194f7f;
+  margin: 0;
+}
+.selection-bar button {
+  font-size: 12px;
+  flex-shrink: 0;
 }
 .duration {
   background: var(--paper);
@@ -615,4 +675,73 @@ button.danger {
 }
 .dialog-copy {
   white-space: pre-line;
+}
+.board-page {
+  max-width: 1050px;
+}
+.board-page .page-heading {
+  gap: 16px;
+}
+.board-page .page-heading > button {
+  flex-shrink: 0;
+}
+.post-row + .post-row {
+  border-top: 1px solid var(--line);
+}
+.post-row {
+  padding: 12px 0;
+}
+.post-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-size: 17px;
+  font-weight: 650;
+  border: 0;
+  padding: 8px 0;
+  overflow-wrap: anywhere;
+}
+.post-row p {
+  margin: 2px 0;
+}
+.board-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+  margin-top: 24px;
+  font-size: 13px;
+}
+.post-dialog {
+  width: min(700px, 92vw);
+}
+.post-dialog h2,
+.post-body {
+  overflow-wrap: anywhere;
+}
+.post-body {
+  white-space: pre-wrap;
+  margin: 24px 0 32px;
+}
+nav [aria-current="page"] {
+  font-weight: 750;
+}
+@media (max-width: 420px) {
+  .topbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .topbar nav {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .month-actions {
+    gap: 3px;
+  }
+  .month-actions button {
+    padding: 6px 8px;
+  }
+  .legend {
+    gap: 8px 12px;
+  }
 }
