@@ -8,21 +8,20 @@ import lombok.Getter;
 @AllArgsConstructor
 public class MyInfoResponse {
 
-    private Long id;
-    private String loginId;
-    private String name;
-    private String role;
-    private String status;
-    private String signupNote;
+  private Long id;
+  private String loginId;
+  private String name;
+  private String role;
+  private String status;
+  private String signupNote;
 
-    public static MyInfoResponse from(User user) {
-        return new MyInfoResponse(
-                user.getId(),
-                user.getLoginId(),
-                user.getName(),
-                user.getRole().name(),
-                user.getStatus().name(),
-                user.getSignupNote()
-        );
-    }
+  public static MyInfoResponse from(User user) {
+    return new MyInfoResponse(
+        user.getId(),
+        user.getLoginId(),
+        user.getName(),
+        user.getRole().name(),
+        user.getStatus().name(),
+        user.getSignupNote());
+  }
 }

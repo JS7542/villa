@@ -1,42 +1,86 @@
 package com.jinsu.villa.admin.service;
 
 import com.jinsu.villa.admin.dto.request.UserApprovalRequest;
+import com.jinsu.villa.admin.dto.request.UserRoleRequest;
 import com.jinsu.villa.admin.dto.response.PendingUserResponse;
-import com.jinsu.villa.user.entity.User;
-import com.jinsu.villa.user.enumtype.UserStatus;
+import com.jinsu.villa.auth.principal.VillaPrincipal;
+import com.jinsu.villa.common.exception.DomainException;
+import com.jinsu.villa.common.util.*;
+import com.jinsu.villa.user.enumtype.*;
 import com.jinsu.villa.user.repository.UserRepository;
+import java.util.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
+import org.springframework.transaction.annotation.*;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class AdminService {
+  private final UserRepository users;
+  private final WriteGuard guard;
+  private final Audit audit;
+  private final JdbcTemplate jdbc;
 
-    private final UserRepository userRepository;
+  @Transactional(isolation = Isolation.READ_COMMITTED)
+  public void changeUserStatus(VillaPrincipal actor, Long id, UserApprovalRequest request) {
+    guard.lock();
+    guard.actor(actor, true);
+    var user = users.findById(id).orElseThrow(DomainException::missing);
+    var before = user.getStatus();
+    var after = request.status();
+    if (before == after) return;
+    boolean allowed =
+        (before == UserStatus.PENDING
+                && (after == UserStatus.ACTIVE || after == UserStatus.REJECTED))
+            || (before == UserStatus.ACTIVE
+                && (after == UserStatus.SUSPENDED || after == UserStatus.WITHDRAWN))
+            || (before == UserStatus.SUSPENDED
+                && (after == UserStatus.ACTIVE || after == UserStatus.WITHDRAWN));
+    if (!allowed)
+      throw DomainException.conflict("INVALID_STATUS_TRANSITION", "허용하지 않는 계정 상태 변경입니다.");
+    if (user.getRole() == Role.ADMIN
+        && before == UserStatus.ACTIVE
+        && jdbc.queryForObject(
+                "SELECT COUNT(*) FROM users WHERE role='ADMIN' AND status='ACTIVE'", Integer.class)
+            <= 1) throw DomainException.conflict("LAST_ADMIN", "마지막 관리자를 비활성화할 수 없습니다.");
+    user.changeStatus(after);
+    audit.record(actor.id(), "USER_STATUS", id, before + " → " + after + ": " + request.reason());
+  }
 
-    @Transactional
-    public void changeUserStatus(Long userId, UserApprovalRequest request) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+  public List<PendingUserResponse> getPendingUsers() {
+    return users.findAllByStatus(UserStatus.PENDING).stream()
+        .map(PendingUserResponse::from)
+        .toList();
+  }
 
-        validateTargetStatus(request.getStatus());
+  @Transactional(isolation = Isolation.READ_COMMITTED)
+  public void changeUserRole(VillaPrincipal actor, Long id, UserRoleRequest request) {
+    guard.lock();
+    guard.actor(actor, true);
+    var user = users.findById(id).orElseThrow(DomainException::missing);
+    if (user.getStatus() != UserStatus.ACTIVE)
+      throw DomainException.conflict("INACTIVE_USER", "활성 계정만 권한을 변경할 수 있습니다.");
+    var before = user.getRole();
+    if (before == request.role()) return;
+    if (before == Role.ADMIN
+        && jdbc.queryForObject(
+                "SELECT COUNT(*) FROM users WHERE role='ADMIN' AND status='ACTIVE'", Integer.class)
+            <= 1) throw DomainException.conflict("LAST_ADMIN", "마지막 관리자의 권한을 해제할 수 없습니다.");
+    user.changeRole(request.role());
+    audit.record(
+        actor.id(), "USER_ROLE", id, before + " → " + request.role() + ": " + request.reason());
+  }
 
-        user.changeStatus(request.getStatus());
-    }
+  public List<Map<String, Object>> allUsers() {
+    return jdbc.queryForList(
+        "SELECT id,login_id AS loginId,name,role,status FROM users ORDER BY id DESC LIMIT 500");
+  }
 
-    public List<PendingUserResponse> getPendingUsers() {
-        return userRepository.findAllByStatus(UserStatus.PENDING).stream()
-                .map(PendingUserResponse::from)
-                .toList();
-    }
-
-    private void validateTargetStatus(UserStatus status) {
-        if (status != UserStatus.ACTIVE && status != UserStatus.REJECTED) {
-            throw new IllegalArgumentException("변경할 수 없는 상태입니다.");
-        }
-    }
+  public List<Map<String, Object>> audit() {
+    return jdbc.queryForList(
+        "SELECT id,actor_id,action,target_id,reason,created_at FROM admin_audit ORDER BY id DESC"
+            + " LIMIT 200");
+  }
 }

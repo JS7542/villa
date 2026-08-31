@@ -43,3 +43,6 @@ src/main/resources/application-secret.properties
 *.env
 
 .fake
+!.env.example
+*.log
+/data/
