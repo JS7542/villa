@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+  <head>
+    <th:block th:fragment="metadata">
+      <meta name="application-name" content="Kangsph" />
+      <meta name="theme-color" content="#285f4c" />
+      <meta name="description" content="Kangsph 가족 별장 예약과 자유게시판" />
+      <link rel="icon" type="image/svg+xml" href="/assets/kangsph-mark.svg" />
+    </th:block>
+  </head>
+  <body>
+    <a th:fragment="brand" class="brand" href="/" aria-label="Kangsph 홈">
+      <img class="brand-mark" src="/assets/kangsph-mark.svg" alt="" width="40" height="40" />
+      <span class="brand-wordmark">Kangsph</span>
+      <span class="brand-tagline">가족 별장</span>
+    </a>
+    <header th:fragment="header(activePage, isAdmin)" class="topbar">
+      <a th:replace="~{fragments/branding :: brand}"></a>
+      <nav aria-label="주 메뉴">
+        <a href="/" th:attr="aria-current=${activePage == 'calendar' ? 'page' : null}">예약 달력</a>
+        <a href="/board" th:attr="aria-current=${activePage == 'board' ? 'page' : null}">자유게시판</a>
+        <a href="/manage" th:if="${isAdmin}" th:attr="aria-current=${activePage == 'manage' ? 'page' : null}">관리</a>
+        <button id="logout" class="text-button">로그아웃</button>
+      </nav>
+    </header>
+    <footer th:fragment="footer(note)" class="site-footer">
+      <span class="footer-brand">Kangsph</span>
+      <p th:text="${note}"></p>
+    </footer>
+  </body>
+</html>

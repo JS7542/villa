@@ -533,7 +533,7 @@ class ServiceIntegrationTest {
     var session = login("family_one");
     mvc.perform(get("/").session(session))
         .andExpect(status().isOk())
-        .andExpect(content().string(org.hamcrest.Matchers.containsString("별장 예약")));
+        .andExpect(content().string(org.hamcrest.Matchers.containsString("예약 달력")));
     mvc.perform(
             post("/reservations")
                 .session(session)

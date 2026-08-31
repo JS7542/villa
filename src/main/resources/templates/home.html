@@ -6,24 +6,18 @@
     <meta name="robots" content="noindex,nofollow" />
     <meta name="_csrf" th:content="${_csrf.token}" />
     <meta name="_csrf_header" th:content="${_csrf.headerName}" />
-    <title>가족 별장 · 예약</title>
+    <title th:text="${(admin ? '관리' : '예약 달력') + ' · Kangsph'}">예약 달력 · Kangsph</title>
+    <th:block th:replace="~{fragments/branding :: metadata}"></th:block>
     <link rel="stylesheet" href="/assets/app.css" />
     <script type="module" src="/assets/app.js"></script>
   </head>
   <body th:attr="data-mode=${admin ? 'manage' : 'home'}">
-    <header class="topbar">
-      <a class="brand" href="/">VILLA <span>우리 가족의 별장</span></a>
-      <nav aria-label="주 메뉴">
-        <a href="/">예약 달력</a><a href="/board">자유게시판</a
-        ><a href="/manage" th:if="${user.role().name() == 'ADMIN'}">관리</a
-        ><button id="logout" class="text-button">로그아웃</button>
-      </nav>
-    </header>
+    <header th:replace="~{fragments/branding :: header(${admin ? 'manage' : 'calendar'}, ${user.role().name() == 'ADMIN'})}"></header>
     <main class="dashboard">
       <section class="page-heading">
         <div>
           <h1
-            th:text="${admin ? '별장 관리' : '별장 예약'}"
+            th:text="${admin ? '관리' : '예약 달력'}"
           ></h1>
           <p
             th:text="${admin ? '가입 신청과 예약을 관리합니다.' : user.name() + '님, 이용할 날짜를 골라 주세요.'}"
@@ -183,9 +177,7 @@
           ><button type="submit">변경 후 다시 로그인</button>
         </form>
       </details>
-      <footer>
-        예약 변경이나 이용 문의는 관리자에게 연락해 주세요.
-      </footer>
+      <footer th:replace="~{fragments/branding :: footer('예약 변경이나 이용 문의는 관리자에게 연락해 주세요.')}"></footer>
     </main>
     <dialog id="change-dialog">
       <form id="change-form">

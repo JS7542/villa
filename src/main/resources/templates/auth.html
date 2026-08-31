@@ -6,22 +6,21 @@
     <meta name="robots" content="noindex,nofollow" />
     <meta name="_csrf" th:content="${_csrf.token}" />
     <meta name="_csrf_header" th:content="${_csrf.headerName}" />
-    <title>가족 별장 · 로그인</title>
+    <title th:text="${(mode == 'signup' ? '회원가입' : (mode == 'reset' ? '비밀번호 재설정' : '로그인')) + ' · Kangsph'}">로그인 · Kangsph</title>
+    <th:block th:replace="~{fragments/branding :: metadata}"></th:block>
     <link rel="stylesheet" href="/assets/app.css" />
     <script type="module" src="/assets/app.js"></script>
   </head>
   <body class="auth-page" th:attr="data-mode=${mode}">
     <main class="auth-shell">
       <section class="auth-intro">
-        <a class="brand" href="/">VILLA <span>우리 가족의 별장</span></a>
+        <a th:replace="~{fragments/branding :: brand}"></a>
         <h1>가족 별장 예약</h1>
-        <p>별장 이용 일정을 확인하고 예약할 수 있습니다.</p>
-        <div class="house-art" aria-hidden="true">
-          <div class="roof"></div>
-          <div class="house"><i></i><i></i><i></i></div>
-          <div class="ground"></div>
+        <p>이용할 날짜를 예약하고,<br />게시판에서 가족 소식을 나눠 주세요.</p>
+        <div class="auth-site-note">
+          <span class="private-badge">가족 전용</span>
+          <p>처음 오셨다면 관리자에게 초대코드를 받아 가입해 주세요.</p>
         </div>
-        <p class="quiet">가족 전용입니다. 가입하려면 초대코드가 필요합니다.</p>
       </section>
       <section class="auth-card">
         <h2

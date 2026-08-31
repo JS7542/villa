@@ -1,6 +1,9 @@
-# 가족 공동 별장 예약 서비스
+# Kangsph
 
-초대코드와 관리자 승인으로 가입하고, 가족끼리 한 채의 별장을 예약하는 Spring Boot 웹 서비스입니다.
+가족 별장 예약과 자유게시판을 운영하는 Spring Boot 웹 서비스입니다. 초대코드와 관리자 승인으로 가입합니다.
+
+화면 이름은 Kangsph이며, 기존 저장소·Render 서비스 이름과 DB 스키마 `villa`는 호환성을 위해 유지합니다.
+공통 로고·메타 정보·메뉴는 `templates/fragments/branding.html`, 아이콘은 `static/assets/kangsph-mark.svg`에서 관리합니다.
 
 ## 무료 배포: Render + Supabase
 
