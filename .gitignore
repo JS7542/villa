@@ -46,3 +46,9 @@ src/main/resources/application-secret.properties
 !.env.example
 *.log
 /data/
+/backups/
+*.dump
+*.backup
+*.sql.gz
+.pgpass
+*.key

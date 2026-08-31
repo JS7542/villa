@@ -42,7 +42,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@ActiveProfiles("test")
+@ActiveProfiles(resolver = TestDatabaseProfiles.class)
 class ServiceIntegrationTest {
   static final Instant NOW = Instant.parse("2026-09-01T00:00:00Z");
   static final String PASSWORD = "Villa-Test-Password-2026";
@@ -52,12 +52,23 @@ class ServiceIntegrationTest {
   static void database(DynamicPropertyRegistry registry) {
     String url = System.getenv("TEST_DB_URL");
     if (url != null) {
+      // This suite deletes application tables. Refuse non-local or non-test databases.
+      if (!url.matches(
+          "jdbc:(postgresql|mysql)://(localhost|127\\.0\\.0\\.1|\\[::1\\])(:[0-9]+)?/villa_test(\\?.*)?"))
+        throw new IllegalArgumentException("TEST_DB_URL must target a local villa_test database");
       registry.add("spring.datasource.url", () -> url);
       registry.add(
           "spring.datasource.username",
           () -> System.getenv().getOrDefault("TEST_DB_USERNAME", "root"));
       registry.add(
           "spring.datasource.password", () -> System.getenv().getOrDefault("TEST_DB_PASSWORD", ""));
+      if (url.startsWith("jdbc:postgresql:")) {
+        registry.add("spring.flyway.create-schemas", () -> true);
+      }
+      if (System.getenv("TEST_DB_MIGRATION_USERNAME") != null) {
+        registry.add("spring.flyway.user", () -> System.getenv("TEST_DB_MIGRATION_USERNAME"));
+        registry.add("spring.flyway.password", () -> System.getenv("TEST_DB_MIGRATION_PASSWORD"));
+      }
     }
   }
 
@@ -527,5 +538,44 @@ class ServiceIntegrationTest {
                 .contentType("application/json")
                 .content("{}"))
         .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void publicReadinessChecksDatabaseAndDoesNotCreateSession() throws Exception {
+    var response = mvc.perform(get("/health/ready"))
+        .andExpect(status().isOk())
+        .andExpect(content().json("{\"status\":\"UP\"}"))
+        .andReturn();
+    assertThat(response.getRequest().getSession(false)).isNull();
+  }
+
+  @Test
+  void databaseConstraintRejectsSecondOwnerForOccupiedDate() {
+    var first = bookings.create(owner, input(10, 10), key());
+    var second = bookings.create(other, input(12, 12), key());
+    assertThatThrownBy(() -> jdbc.update(
+        "INSERT INTO calendar_occupancy(use_date,reservation_id) VALUES(?,?)",
+        LocalDate.of(2026, 9, 10), second.id()))
+        .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+    assertThat(jdbc.queryForObject(
+        "SELECT reservation_id FROM calendar_occupancy WHERE use_date=?",
+        Long.class, LocalDate.of(2026, 9, 10))).isEqualTo(first.id());
+  }
+
+  @Test
+  void postgresRuntimeRoleCannotChangeSchemaOrMigrationHistory() {
+    Assumptions.assumeTrue("villa_app".equals(System.getenv("TEST_DB_USERNAME")));
+    assertThat(jdbc.queryForObject("SELECT current_schema()", String.class)).isEqualTo("villa");
+    assertThat(jdbc.queryForObject(
+        "SELECT has_schema_privilege(current_user, 'villa', 'CREATE')", Boolean.class)).isFalse();
+    assertThat(jdbc.queryForObject(
+        "SELECT has_table_privilege(current_user, 'villa.flyway_schema_history', 'UPDATE')",
+        Boolean.class)).isFalse();
+    for (String role : List.of("anon", "authenticated")) {
+      assertThat(jdbc.queryForObject(
+          "SELECT has_schema_privilege(?, 'villa', 'USAGE')", Boolean.class, role)).isFalse();
+      assertThat(jdbc.queryForObject(
+          "SELECT has_table_privilege(?, 'villa.users', 'SELECT')", Boolean.class, role)).isFalse();
+    }
   }
 }

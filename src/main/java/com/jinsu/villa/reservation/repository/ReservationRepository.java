@@ -32,7 +32,8 @@ public class ReservationRepository {
     KeyHolder key = new GeneratedKeyHolder();
     jdbc.update(
         connection -> {
-          var st = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
+          // PostgreSQL otherwise returns every inserted column, not just the generated ID.
+          var st = connection.prepareStatement(sql, new String[] {"id"});
           for (int i = 0; i < values.length; i++) st.setObject(i + 1, values[i]);
           return st;
         },

@@ -5,6 +5,53 @@ on:
 permissions:
   contents: read
 jobs:
+  postgres-integration:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        timezone: [UTC, Asia/Seoul]
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: integration-only-password
+          POSTGRES_DB: villa_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d villa_test"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+    env:
+      TEST_TIME_ZONE: ${{ matrix.timezone }}
+      TEST_DB_URL: jdbc:postgresql://127.0.0.1:5432/villa_test
+      TEST_DB_USERNAME: villa_app
+      TEST_DB_PASSWORD: integration-runtime-password
+      TEST_DB_MIGRATION_USERNAME: villa_migrator
+      TEST_DB_MIGRATION_PASSWORD: integration-migration-password
+    steps:
+      - uses: actions/checkout@v4
+      - name: Provision isolated roles and schema
+        run: |
+          docker exec ${{ job.services.postgres.id }} psql -v ON_ERROR_STOP=1 -U postgres -d villa_test -c "CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN;"
+          docker exec -i ${{ job.services.postgres.id }} psql -v ON_ERROR_STOP=1 -U postgres -d villa_test < deploy/supabase-provision.sql
+          docker exec ${{ job.services.postgres.id }} psql -v ON_ERROR_STOP=1 -U postgres -d villa_test -c "ALTER ROLE villa_app PASSWORD 'integration-runtime-password'; ALTER ROLE villa_migrator PASSWORD 'integration-migration-password';"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: chmod +x gradlew
+      - run: ./gradlew test bootJar --no-daemon
+      - name: Build deployment image
+        if: matrix.timezone == 'UTC'
+        run: docker build -t villa:ci .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: postgres-results-${{ strategy.job-index }}
+          path: build/reports/tests/test
   mysql-integration:
     runs-on: ubuntu-latest
     strategy:

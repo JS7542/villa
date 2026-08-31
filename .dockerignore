@@ -5,3 +5,9 @@ build
 .env.*
 src/main/resources/application-secret.properties
 *.log
+backups
+*.dump
+*.backup
+*.sql.gz
+.pgpass
+*.key

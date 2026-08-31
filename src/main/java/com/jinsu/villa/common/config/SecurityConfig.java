@@ -56,6 +56,7 @@ public class SecurityConfig {
                         "/auth/password/reset",
                         "/assets/**",
                         "/health",
+                        "/health/ready",
                         "/error")
                     .permitAll()
                     .requestMatchers("/admin/**", "/manage")
