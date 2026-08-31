@@ -35,6 +35,7 @@ public class InviteCode extends BaseTimeEntity {
   private InviteCodeStatus status;
 
   @Column(name = "expires_at", nullable = false)
+  @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.LOCAL_DATE_TIME)
   private LocalDateTime expiresAt;
 
   @Column(name = "used_by_user_id")

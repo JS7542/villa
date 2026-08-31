@@ -1,6 +1,7 @@
 package com.jinsu.villa.admin.service;
 
 import com.jinsu.villa.admin.dto.request.UserApprovalRequest;
+import com.jinsu.villa.admin.dto.request.UserRoleRequest;
 import com.jinsu.villa.admin.dto.response.PendingUserResponse;
 import com.jinsu.villa.auth.principal.VillaPrincipal;
 import com.jinsu.villa.common.exception.DomainException;
@@ -52,6 +53,24 @@ public class AdminService {
     return users.findAllByStatus(UserStatus.PENDING).stream()
         .map(PendingUserResponse::from)
         .toList();
+  }
+
+  @Transactional(isolation = Isolation.READ_COMMITTED)
+  public void changeUserRole(VillaPrincipal actor, Long id, UserRoleRequest request) {
+    guard.lock();
+    guard.actor(actor, true);
+    var user = users.findById(id).orElseThrow(DomainException::missing);
+    if (user.getStatus() != UserStatus.ACTIVE)
+      throw DomainException.conflict("INACTIVE_USER", "활성 계정만 권한을 변경할 수 있습니다.");
+    var before = user.getRole();
+    if (before == request.role()) return;
+    if (before == Role.ADMIN
+        && jdbc.queryForObject(
+                "SELECT COUNT(*) FROM users WHERE role='ADMIN' AND status='ACTIVE'", Integer.class)
+            <= 1) throw DomainException.conflict("LAST_ADMIN", "마지막 관리자의 권한을 해제할 수 없습니다.");
+    user.changeRole(request.role());
+    audit.record(
+        actor.id(), "USER_ROLE", id, before + " → " + request.role() + ": " + request.reason());
   }
 
   public List<Map<String, Object>> allUsers() {

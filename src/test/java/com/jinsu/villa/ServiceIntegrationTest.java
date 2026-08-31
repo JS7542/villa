@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.jinsu.villa.admin.dto.request.UserApprovalRequest;
+import com.jinsu.villa.admin.dto.request.UserRoleRequest;
 import com.jinsu.villa.admin.service.AdminService;
 import com.jinsu.villa.auth.dto.request.SignupRequest;
 import com.jinsu.villa.auth.principal.VillaPrincipal;
@@ -335,6 +336,20 @@ class ServiceIntegrationTest {
   @Test
   void expiredInviteAtBoundaryAndDuplicateSignupDoNotConsume() {
     var code = invites.issue(admin);
+    assertThat(
+            jdbc.<LocalDateTime>queryForObject(
+                "SELECT expires_at FROM invite_codes WHERE id=?",
+                (rs, i) -> rs.getObject(1, LocalDateTime.class),
+                code.id()))
+        .isEqualTo(
+            LocalDateTime.ofInstant(
+                NOW.plus(7, java.time.temporal.ChronoUnit.DAYS), ZoneOffset.UTC));
+    assertThat(
+            jdbc.<LocalDateTime>queryForObject(
+                "SELECT created_at FROM users WHERE id=?",
+                (rs, i) -> rs.getObject(1, LocalDateTime.class),
+                owner.id()))
+        .isEqualTo(LocalDateTime.ofInstant(NOW, ZoneOffset.UTC));
     jdbc.update(
         "UPDATE invite_codes SET expires_at=? WHERE id=?",
         LocalDateTime.ofInstant(NOW, ZoneOffset.UTC),
@@ -429,6 +444,70 @@ class ServiceIntegrationTest {
     bookings.create(owner, input(12, 12), key());
     assertThatThrownBy(() -> bookings.create(owner, input(14, 14), key()))
         .isInstanceOf(DomainException.class);
+  }
+
+  @Test
+  void roleChangesRevokeSessionsAndKeepLastAdministrator() throws Exception {
+    assertThatThrownBy(
+            () -> admins.changeUserRole(admin, admin.id(), new UserRoleRequest(Role.USER, "last")))
+        .isInstanceOf(DomainException.class)
+        .hasMessageContaining("마지막");
+    var session = login("family_one");
+    admins.changeUserRole(admin, owner.id(), new UserRoleRequest(Role.ADMIN, "보조 관리자 지정"));
+    mvc.perform(get("/admin/users").session(session)).andExpect(status().isUnauthorized());
+    var promoted = login("family_one");
+    mvc.perform(get("/admin/users").session(promoted)).andExpect(status().isOk());
+    admins.changeUserRole(admin, owner.id(), new UserRoleRequest(Role.USER, "담당 종료"));
+    mvc.perform(get("/admin/users").session(promoted)).andExpect(status().isUnauthorized());
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT COUNT(*) FROM admin_audit WHERE action='USER_ROLE'", Integer.class))
+        .isEqualTo(2);
+  }
+
+  @Test
+  void oldBlockRemainsVisibleAndReleasableAfterManyReleasedRows() {
+    long block =
+        bookings.block(
+            admin, new Block(LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 10), "active"));
+    List<Object[]> rows = IntStream.range(0, 501).mapToObj(i -> new Object[] {admin.id()}).toList();
+    jdbc.batchUpdate(
+        "INSERT INTO calendar_blocks(start_date,end_date,reason,status,created_by,created_at)"
+            + " VALUES('2026-10-01','2026-10-01','old','RELEASED',?,'2026-09-01')",
+        rows);
+    assertThat(bookings.calendar(owner, 2026, 9)).extracting(CalendarItem::id).contains(block);
+    assertThat(bookings.blocks()).extracting(BlockView::id).contains(block);
+    bookings.release(admin, block, new Cancel(0L, "finished"));
+    assertThat(bookings.calendar(owner, 2026, 9)).isEmpty();
+  }
+
+  @Test
+  void pendingNoticeIsNotHiddenByAcknowledgedHistory() {
+    var reservation = bookings.create(owner, input(10, 10), key());
+    bookings.change(
+        admin,
+        reservation.id(),
+        new Change(LocalDate.of(2026, 9, 12), LocalDate.of(2026, 9, 12), 2, 0L, "pending"));
+    long pending = bookings.notices(owner, false).getFirst().id();
+    long history =
+        jdbc.queryForObject(
+            "SELECT history_id FROM communication_tasks WHERE id=?", Long.class, pending);
+    for (int i = 0; i < 201; i++) {
+      jdbc.update(
+          "INSERT INTO"
+              + " reservation_history(reservation_id,actor_id,action,reason,after_value,created_at)"
+              + " VALUES(?,?,'UPDATE','old','old','2026-09-01')",
+          reservation.id(),
+          admin.id());
+      long h = jdbc.queryForObject("SELECT MAX(id) FROM reservation_history", Long.class);
+      jdbc.update(
+          "INSERT INTO communication_tasks(history_id,recipient_id,status)"
+              + " VALUES(?,?,'ACKNOWLEDGED')",
+          h,
+          owner.id());
+    }
+    assertThat(bookings.notices(owner, false).getFirst().id()).isEqualTo(pending);
+    assertThat(bookings.notices(admin, true).getFirst().id()).isEqualTo(pending);
   }
 
   @Test

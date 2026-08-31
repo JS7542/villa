@@ -44,6 +44,7 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.withType(Test).configureEach {
     systemProperty 'file.encoding', 'UTF-8'
+    systemProperty 'user.timezone', System.getenv('TEST_TIME_ZONE') ?: 'Asia/Seoul'
 }
 
 bootRun {

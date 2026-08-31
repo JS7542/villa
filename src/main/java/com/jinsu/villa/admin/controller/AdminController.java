@@ -1,6 +1,7 @@
 package com.jinsu.villa.admin.controller;
 
 import com.jinsu.villa.admin.dto.request.UserApprovalRequest;
+import com.jinsu.villa.admin.dto.request.UserRoleRequest;
 import com.jinsu.villa.admin.dto.response.PendingUserResponse;
 import com.jinsu.villa.admin.service.AdminService;
 import com.jinsu.villa.auth.principal.VillaPrincipal;
@@ -27,6 +28,14 @@ public class AdminController {
   @GetMapping("/users/pending")
   public List<PendingUserResponse> pending() {
     return service.getPendingUsers();
+  }
+
+  @PatchMapping("/users/{id}/role")
+  public void role(
+      @AuthenticationPrincipal VillaPrincipal p,
+      @PathVariable Long id,
+      @Valid @RequestBody UserRoleRequest input) {
+    service.changeUserRole(p, id, input);
   }
 
   @GetMapping("/users")

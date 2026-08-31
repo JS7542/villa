@@ -1,9 +1,208 @@
-<!doctype html><html lang="ko" xmlns:th="http://www.thymeleaf.org"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="_csrf" th:content="${_csrf.token}"><meta name="_csrf_header" th:content="${_csrf.headerName}"><title>가족 별장 · 함께 쓰는 달력</title><link rel="stylesheet" href="/assets/app.css"><script defer src="/assets/app.js"></script></head>
-<body th:attr="data-mode=${admin ? 'manage' : 'home'}"><header class="topbar"><a class="brand" href="/">VILLA <span>우리 가족의 별장</span></a><nav aria-label="주 메뉴"><a href="/">예약 달력</a><a href="/manage" th:if="${user.role().name() == 'ADMIN'}">관리</a><button id="logout" class="text-button">로그아웃</button></nav></header>
-<main class="dashboard"><section class="page-heading"><div><p class="eyebrow">FAMILY VILLA</p><h1 th:text="${admin ? '별장 운영 관리' : '다음 쉼은 언제인가요?'}"></h1><p th:text="${admin ? '가입, 일정 변경과 연락할 일을 한곳에서 확인하세요.' : user.name() + '님, 가족의 일정을 확인하고 편안한 시간을 예약하세요.'}"></p></div><span class="private-badge">가족 전용 공간</span></section><p id="global-message" class="message" role="status" aria-live="polite"></p><section id="notices" class="notice-list" aria-label="예약 변경 안내"></section>
-<div th:unless="${admin}" class="booking-layout"><section class="panel calendar-panel"><div class="panel-heading"><div><p class="eyebrow">AVAILABILITY</p><h2 id="month-title"></h2></div><div class="month-actions"><button id="prev-month" aria-label="이전 달">←</button><button id="today-month">이번 달</button><button id="next-month" aria-label="다음 달">→</button></div></div><div class="legend"><span>내 예약</span><span>가족 예약</span><span>점검·행사</span></div><div class="weekdays" aria-hidden="true"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div><div id="calendar" class="calendar" aria-label="예약 가능한 날짜"></div><p class="hint">날짜를 누르면 시작일에 입력됩니다. 시작일과 종료일은 모두 사용일에 포함됩니다.</p></section>
-<aside><section class="panel"><p class="eyebrow">YOUR NEXT STAY</p><h2>새 일정 예약</h2><form id="booking-form"><label>시작일<input type="date" name="startDate" required></label><label>종료일<input type="date" name="endDate" required></label><label>이용 인원<input type="number" name="guestCount" min="1" value="1" required></label><label>메모 <span class="quiet">본인·관리자만 확인</span><textarea name="memo" maxlength="500"></textarea></label><p id="duration" class="duration">날짜를 선택해 주세요.</p><p id="booking-message" class="message" role="status"></p><button type="submit" class="primary wide">일정 확인하고 예약</button></form></section><section class="guidance"><h3>예약 전에 확인해 주세요</h3><p id="policy-summary"></p><p>시작일 전날까지 직접 취소할 수 있습니다. 이후 변경은 관리자에게 연락해 주세요.</p></section></aside></div>
-<section th:unless="${admin}" class="panel section-gap"><div class="panel-heading"><h2>내 예약</h2><button id="refresh">새로고침</button></div><div id="my-bookings" class="cards"></div></section>
-<div th:if="${admin}" class="manage-grid"><section class="panel"><h2>초대코드</h2><p>발급 때 한 번만 표시됩니다. 가족에게 직접 전달하세요.</p><button id="issue-invite" class="primary">새 초대코드 발급</button><output id="issued-code" class="secret-output"></output><div id="invites" class="compact-list"></div></section><section class="panel"><h2>가입 대기</h2><div id="pending-users" class="compact-list"></div></section><section class="panel full"><h2>전체 예약</h2><p>변경·취소 사유를 남기고 예약자에게 직접 연락해 주세요.</p><div id="admin-bookings" class="cards"></div></section><section class="panel"><h2>점검·행사 기간</h2><form id="block-form"><label>시작일<input type="date" name="startDate" required></label><label>종료일<input type="date" name="endDate" required></label><label>사유<input name="reason" required maxlength="500"></label><button class="primary" type="submit">사용 불가 기간 등록</button></form><div id="blocks" class="compact-list"></div></section><section class="panel"><h2>연락할 일</h2><p>실제 연락을 마친 뒤 완료를 눌러 주세요.</p><div id="communications" class="compact-list"></div></section><section class="panel full"><h2>계정 관리</h2><p>정지·탈퇴 계정의 기존 예약은 자동 삭제되지 않습니다. 따로 확인하세요.</p><div id="users" class="compact-list"></div><output id="reset-code" class="secret-output"></output></section></div>
-<details class="panel section-gap"><summary>비밀번호 변경</summary><form id="password-form" class="password-form"><label>현재 비밀번호<input type="password" name="currentPassword" autocomplete="current-password" required maxlength="72"></label><label>새 비밀번호<input type="password" name="password" autocomplete="new-password" minlength="12" maxlength="72" required></label><button type="submit">변경 후 다시 로그인</button></form></details><footer>함께 쓰는 공간을 소중하게. 이용 수칙·현장 연락은 별장 관리자의 안내를 따라주세요.</footer></main>
-<dialog id="change-dialog"><form id="change-form"><h2>예약 일정 변경</h2><input type="hidden" name="id"><input type="hidden" name="expectedVersion"><label>시작일<input type="date" name="startDate" required></label><label>종료일<input type="date" name="endDate" required></label><label>인원<input type="number" name="guestCount" min="1" required></label><label>변경 사유<input name="reason" required maxlength="500"></label><p id="change-message" class="message" role="status"></p><div class="actions"><button type="button" id="close-change">닫기</button><button class="primary" type="submit">변경 저장</button></div></form></dialog></body></html>
+<!doctype html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <meta name="_csrf" th:content="${_csrf.token}" />
+    <meta name="_csrf_header" th:content="${_csrf.headerName}" />
+    <title>가족 별장 · 함께 쓰는 달력</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+    <script defer src="/assets/app.js"></script>
+  </head>
+  <body th:attr="data-mode=${admin ? 'manage' : 'home'}">
+    <header class="topbar">
+      <a class="brand" href="/">VILLA <span>우리 가족의 별장</span></a>
+      <nav aria-label="주 메뉴">
+        <a href="/">예약 달력</a
+        ><a href="/manage" th:if="${user.role().name() == 'ADMIN'}">관리</a
+        ><button id="logout" class="text-button">로그아웃</button>
+      </nav>
+    </header>
+    <main class="dashboard">
+      <section class="page-heading">
+        <div>
+          <p class="eyebrow">FAMILY VILLA</p>
+          <h1
+            th:text="${admin ? '별장 운영 관리' : '다음 쉼은 언제인가요?'}"
+          ></h1>
+          <p
+            th:text="${admin ? '가입, 일정 변경과 연락할 일을 한곳에서 확인하세요.' : user.name() + '님, 가족의 일정을 확인하고 편안한 시간을 예약하세요.'}"
+          ></p>
+        </div>
+        <span class="private-badge">가족 전용 공간</span>
+      </section>
+      <p
+        id="global-message"
+        class="message"
+        role="status"
+        aria-live="polite"
+      ></p>
+      <section
+        id="notices"
+        class="notice-list"
+        aria-label="예약 변경 안내"
+      ></section>
+      <div th:unless="${admin}" class="booking-layout">
+        <section class="panel calendar-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">AVAILABILITY</p>
+              <h2 id="month-title"></h2>
+            </div>
+            <div class="month-actions">
+              <button id="prev-month" aria-label="이전 달">←</button
+              ><button id="today-month">이번 달</button
+              ><button id="next-month" aria-label="다음 달">→</button>
+            </div>
+          </div>
+          <div class="legend">
+            <span>내 예약</span><span>가족 예약</span><span>점검·행사</span>
+          </div>
+          <div class="weekdays" aria-hidden="true">
+            <span>일</span><span>월</span><span>화</span><span>수</span
+            ><span>목</span><span>금</span><span>토</span>
+          </div>
+          <div
+            id="calendar"
+            class="calendar"
+            aria-label="예약 가능한 날짜"
+          ></div>
+          <p class="hint">
+            날짜를 누르면 시작일에 입력됩니다. 시작일과 종료일은 모두 사용일에
+            포함됩니다.
+          </p>
+        </section>
+        <aside>
+          <section class="panel">
+            <p class="eyebrow">YOUR NEXT STAY</p>
+            <h2>새 일정 예약</h2>
+            <form id="booking-form">
+              <label
+                >시작일<input type="date" name="startDate" required /></label
+              ><label>종료일<input type="date" name="endDate" required /></label
+              ><label
+                >이용 인원<input
+                  type="number"
+                  name="guestCount"
+                  min="1"
+                  value="1"
+                  required /></label
+              ><label
+                >메모 <span class="quiet">본인·관리자만 확인</span
+                ><textarea name="memo" maxlength="500"></textarea>
+              </label>
+              <p id="duration" class="duration">날짜를 선택해 주세요.</p>
+              <p id="booking-message" class="message" role="status"></p>
+              <button type="submit" class="primary wide">
+                일정 확인하고 예약
+              </button>
+            </form>
+          </section>
+          <section class="guidance">
+            <h3>예약 전에 확인해 주세요</h3>
+            <p id="policy-summary"></p>
+            <p>
+              시작일 전날까지 직접 취소할 수 있습니다. 이후 변경은 관리자에게
+              연락해 주세요.
+            </p>
+          </section>
+        </aside>
+      </div>
+      <section th:unless="${admin}" class="panel section-gap">
+        <div class="panel-heading">
+          <h2>내 예약</h2>
+          <button id="refresh">새로고침</button>
+        </div>
+        <div id="my-bookings" class="cards"></div>
+      </section>
+      <div th:if="${admin}" class="manage-grid">
+        <section class="panel">
+          <h2>초대코드</h2>
+          <p>발급 때 한 번만 표시됩니다. 가족에게 직접 전달하세요.</p>
+          <button id="issue-invite" class="primary">새 초대코드 발급</button
+          ><output id="issued-code" class="secret-output"></output>
+          <div id="invites" class="compact-list"></div>
+        </section>
+        <section class="panel">
+          <h2>가입 대기</h2>
+          <div id="pending-users" class="compact-list"></div>
+        </section>
+        <section class="panel full">
+          <h2>전체 예약</h2>
+          <p>변경·취소 사유를 남기고 예약자에게 직접 연락해 주세요.</p>
+          <div id="admin-bookings" class="cards"></div>
+        </section>
+        <section class="panel">
+          <h2>점검·행사 기간</h2>
+          <form id="block-form">
+            <label>시작일<input type="date" name="startDate" required /></label
+            ><label>종료일<input type="date" name="endDate" required /></label
+            ><label>사유<input name="reason" required maxlength="500" /></label
+            ><button class="primary" type="submit">사용 불가 기간 등록</button>
+          </form>
+          <div id="blocks" class="compact-list"></div>
+        </section>
+        <section class="panel">
+          <h2>연락할 일</h2>
+          <p>실제 연락을 마친 뒤 완료를 눌러 주세요.</p>
+          <div id="communications" class="compact-list"></div>
+        </section>
+        <section class="panel full">
+          <h2>계정 관리</h2>
+          <p>
+            정지·탈퇴 계정의 기존 예약은 자동 삭제되지 않습니다. 따로
+            확인하세요.
+          </p>
+          <div id="users" class="compact-list"></div>
+          <output id="reset-code" class="secret-output"></output>
+        </section>
+      </div>
+      <details class="panel section-gap">
+        <summary>비밀번호 변경</summary>
+        <form id="password-form" class="password-form">
+          <label
+            >현재 비밀번호<input
+              type="password"
+              name="currentPassword"
+              autocomplete="current-password"
+              required
+              maxlength="72" /></label
+          ><label
+            >새 비밀번호<input
+              type="password"
+              name="password"
+              autocomplete="new-password"
+              minlength="12"
+              maxlength="72"
+              required /></label
+          ><button type="submit">변경 후 다시 로그인</button>
+        </form>
+      </details>
+      <footer>
+        함께 쓰는 공간을 소중하게. 이용 수칙·현장 연락은 별장 관리자의 안내를
+        따라주세요.
+      </footer>
+    </main>
+    <dialog id="change-dialog">
+      <form id="change-form">
+        <h2>예약 일정 변경</h2>
+        <input type="hidden" name="id" /><input
+          type="hidden"
+          name="expectedVersion"
+        /><label>시작일<input type="date" name="startDate" required /></label
+        ><label>종료일<input type="date" name="endDate" required /></label
+        ><label
+          >인원<input type="number" name="guestCount" min="1" required /></label
+        ><label
+          >변경 사유<input name="reason" required maxlength="500"
+        /></label>
+        <p id="change-message" class="message" role="status"></p>
+        <div class="actions">
+          <button type="button" id="close-change">닫기</button
+          ><button class="primary" type="submit">변경 저장</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

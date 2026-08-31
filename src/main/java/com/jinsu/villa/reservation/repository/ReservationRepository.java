@@ -105,15 +105,30 @@ public class ReservationRepository {
 
   public List<BlockView> blocks() {
     return jdbc.query(
-        "SELECT * FROM calendar_blocks ORDER BY start_date DESC LIMIT 500",
-        (rs, i) ->
-            new BlockView(
-                rs.getLong("id"),
-                rs.getObject("start_date", LocalDate.class),
-                rs.getObject("end_date", LocalDate.class),
-                rs.getString("reason"),
-                rs.getString("status"),
-                rs.getLong("version")));
+        "SELECT * FROM calendar_blocks ORDER BY CASE WHEN status='ACTIVE' THEN 0 ELSE 1"
+            + " END,start_date DESC LIMIT 500",
+        blockMapper);
+  }
+
+  private final RowMapper<BlockView> blockMapper =
+      (rs, i) ->
+          new BlockView(
+              rs.getLong("id"), rs.getObject("start_date", LocalDate.class),
+              rs.getObject("end_date", LocalDate.class), rs.getString("reason"),
+              rs.getString("status"), rs.getLong("version"));
+
+  public List<BlockView> blocksInMonth(LocalDate first, LocalDate last) {
+    return jdbc.query(
+        "SELECT * FROM calendar_blocks WHERE status='ACTIVE' AND start_date<=? AND end_date>=?"
+            + " ORDER BY start_date",
+        blockMapper,
+        last,
+        first);
+  }
+
+  public Optional<BlockView> block(long id) {
+    return jdbc.query("SELECT * FROM calendar_blocks WHERE id=?", blockMapper, id).stream()
+        .findFirst();
   }
 
   public List<History> history(long id) {
@@ -136,7 +151,8 @@ public class ReservationRepository {
             + " communication_tasks c JOIN reservation_history h ON h.id=c.history_id JOIN users u"
             + " ON u.id=c.recipient_id "
             + (userId == null ? "" : "WHERE c.recipient_id=? ")
-            + "ORDER BY c.id DESC LIMIT 200",
+            + "ORDER BY CASE c.status WHEN 'PENDING' THEN 0 WHEN 'CONTACTED' THEN 1 ELSE 2 END,c.id"
+            + " ASC LIMIT 200",
         (rs, i) ->
             new Notice(
                 rs.getLong("id"),

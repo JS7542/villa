@@ -80,4 +80,9 @@ public class User extends BaseTimeEntity {
   public void revokeSessions() {
     this.authVersion++;
   }
+
+  public void changeRole(Role role) {
+    this.role = role;
+    this.authVersion++;
+  }
 }

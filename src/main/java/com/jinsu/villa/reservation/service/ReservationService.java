@@ -193,11 +193,8 @@ public class ReservationService {
               r.startDate(),
               r.endDate(),
               r.userId() == actor.id()));
-    for (var b : reservations.blocks())
-      if (b.status().equals("ACTIVE")
-          && !b.startDate().isAfter(ym.atEndOfMonth())
-          && !b.endDate().isBefore(ym.atDay(1)))
-        result.add(new CalendarItem(b.id(), "BLOCK", "점검·행사", b.startDate(), b.endDate(), false));
+    for (var b : reservations.blocksInMonth(ym.atDay(1), ym.atEndOfMonth()))
+      result.add(new CalendarItem(b.id(), "BLOCK", "점검·행사", b.startDate(), b.endDate(), false));
     return result;
   }
 
@@ -291,11 +288,7 @@ public class ReservationService {
   public void release(VillaPrincipal actor, long id, Cancel input) {
     guard.lock();
     guard.actor(actor, true);
-    var b =
-        reservations.blocks().stream()
-            .filter(x -> x.id() == id)
-            .findFirst()
-            .orElseThrow(DomainException::missing);
+    var b = reservations.block(id).orElseThrow(DomainException::missing);
     if (b.version() != input.expectedVersion())
       throw DomainException.conflict("STALE_VERSION", "점검 정보가 변경되었습니다.");
     if (b.status().equals("RELEASED")) return;
