@@ -1,0 +1,7 @@
+*
+!Dockerfile
+!entrypoint.sh
+!conf.d/
+!conf.d/**
+!init/
+!init/**
