@@ -1,0 +1,9 @@
+[mysqld]
+character-set-server=utf8mb4
+collation-server=utf8mb4_unicode_ci
+default-time-zone=+00:00
+log-error=/var/log/mysql/error.log
+slow-query-log=ON
+slow-query-log-file=/var/log/mysql/slow.log
+long-query-time=2
+general-log=OFF
