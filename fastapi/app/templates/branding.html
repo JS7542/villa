@@ -1,0 +1,26 @@
+{% macro metadata() -%}
+<meta name="application-name" content="Kangsph" />
+<meta name="theme-color" content="#285f4c" />
+<meta name="description" content="Kangsph 가족 별장 예약과 자유게시판" />
+<link rel="icon" type="image/svg+xml" href="/assets/kangsph-mark.svg" />
+{%- endmacro %}
+{% macro brand() -%}
+<a class="brand" href="/" aria-label="Kangsph 홈">
+  <img class="brand-mark" src="/assets/kangsph-mark.svg" alt="" width="40" height="40" />
+  <span class="brand-wordmark">Kangsph</span><span class="brand-tagline">가족 별장</span>
+</a>
+{%- endmacro %}
+{% macro header(active, is_admin) -%}
+<header class="topbar">
+  {{ brand() }}
+  <nav aria-label="주 메뉴">
+    <a href="/" {% if active == 'calendar' %}aria-current="page"{% endif %}>예약 달력</a>
+    <a href="/board" {% if active == 'board' %}aria-current="page"{% endif %}>자유게시판</a>
+    {% if is_admin %}<a href="/manage" {% if active == 'manage' %}aria-current="page"{% endif %}>관리</a>{% endif %}
+    <button id="logout" class="text-button">로그아웃</button>
+  </nav>
+</header>
+{%- endmacro %}
+{% macro footer(note) -%}
+<footer class="site-footer"><span class="footer-brand">Kangsph</span><p>{{ note }}</p></footer>
+{%- endmacro %}

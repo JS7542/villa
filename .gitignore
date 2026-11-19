@@ -53,3 +53,11 @@ src/main/resources/application-secret.properties
 .pgpass
 *.key
 /node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+/logs/*/*
+!/logs/*/.gitkeep
+villa-backup.sql

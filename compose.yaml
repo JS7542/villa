@@ -1,0 +1,78 @@
+name: villa
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  mysql:
+    image: ${IMAGE_PREFIX:-villa}/mysql:${IMAGE_TAG:-latest}
+    build: ./mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-villa}
+      MYSQL_USER: ${MYSQL_USER:-villa}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      TZ: UTC
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./logs/mysql:/var/log/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysql --protocol=TCP -h 127.0.0.1 -u\"$$MYSQL_USER\" \"$$MYSQL_DATABASE\" -Nse 'SELECT id FROM villa_schedule_lock WHERE id=1' | grep -qx 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    logging: *logging
+
+  fastapi:
+    image: ${IMAGE_PREFIX:-villa}/fastapi:${IMAGE_TAG:-latest}
+    build: ./fastapi
+    restart: unless-stopped
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-villa}
+      MYSQL_USER: ${MYSQL_USER:-villa}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      VILLA_MAX_GUESTS: ${VILLA_MAX_GUESTS:-0}
+      BOOTSTRAP_ENABLED: ${BOOTSTRAP_ENABLED:-false}
+      BOOTSTRAP_LOGIN_ID: ${BOOTSTRAP_LOGIN_ID:-}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-}
+      TZ: UTC
+    volumes:
+      - ./logs/fastapi:/var/log/villa
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    logging: *logging
+
+  nginx:
+    image: ${IMAGE_PREFIX:-villa}/nginx:${IMAGE_TAG:-latest}
+    build: ./nginx
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      fastapi:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    logging: *logging
+
+volumes:
+  mysql_data:
